@@ -55,6 +55,18 @@ llamafactory-cli train examples/train_lora/llama3_lora_sft.yaml
 llamafactory-cli train examples/train_lora/qwen2_5vl_lora_sft.yaml
 ```
 
+#### LLaVA-NeXT-Video LoRA Fine-Tuning
+
+LLaVA-Next-Video is an open-source chatbot trained by fine-tuning an LLM on multimodal instruction-following data, built on LLaVa-NeXT and tuned on a mix of video and image data for enhanced video understanding.
+This example demonstrates supervised fine-tuning for LLaVA-NeXT-Video using LoRA.
+
+The configuration for this example can be found in `examples/train_lora/llava_next_video_lora_sft.yaml`. This configuration uses the `sharegpt4video` dataset by default. `sharegpt4video` is a comprehensive dataset available from Hugging Face Hub (`ShareGPT4Video/ShareGPT4Video`) that can provide more thorough training, though it may require significant computational resources and download time. For a quicker test with a smaller dataset, you can modify the `dataset` field in the YAML file to `mllm_video_demo`.
+
+To run the fine-tuning:
+```bash
+bash examples/train_lora/llava_next_video_lora_sft.sh
+```
+
 #### DPO/ORPO/SimPO Training
 
 ```bash
