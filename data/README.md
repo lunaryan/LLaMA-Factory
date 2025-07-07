@@ -28,6 +28,7 @@ Currently we support datasets in **alpaca** and **sharegpt** format. Allowed fil
     "images": "the column name in the dataset containing the image inputs. (default: None)",
     "videos": "the column name in the dataset containing the videos inputs. (default: None)",
     "audios": "the column name in the dataset containing the audios inputs. (default: None)",
+    "custom_feature_vector": "the column name in the dataset containing the custom numerical feature vector (list of floats). (default: None)",
     "chosen": "the column name in the dataset containing the chosen answers. (default: None)",
     "rejected": "the column name in the dataset containing the rejected answers. (default: None)",
     "kto_tag": "the column name in the dataset containing the kto tags. (default: None)"
@@ -429,6 +430,38 @@ Regarding the above dataset, the *dataset description* in `dataset_info.json` sh
   }
 }
 ```
+
+### Custom Numerical Feature Dataset (Can be used with any format, typically alongside multimodal data)
+
+To include an additional numerical feature vector with your samples (e.g., for providing global context or specific attributes), add a `custom_feature_vector` column to your dataset.
+
+- This column should contain a list of floating-point numbers.
+- Example JSON entry:
+  ```json
+  {
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>Describe this image with respect to the provided feature."
+      },
+      {
+        "from": "gpt",
+        "value": "Okay, considering the feature, this image shows..."
+      }
+    ],
+    "images": ["path/to/image.jpg"],
+    "custom_feature_vector": [0.1, -0.5, 0.33, 1.2]
+  }
+  ```
+
+- The corresponding `dataset_info.json` entry for this column would be:
+  ```json
+  "columns": {
+    ... // other columns like messages, images
+    "custom_feature_vector": "custom_feature_vector"
+  }
+  ```
+- Ensure that if this feature is used, all samples in a batch that provide it have a vector of the same dimension. The feature will be projected to the model's hidden dimension and added to the input embeddings. Refer to the main `README.md` for model arguments related to this feature's projector (`custom_feature_dim`, etc.) and how to configure training for only the projector layer.
 
 ### OpenAI Format
 

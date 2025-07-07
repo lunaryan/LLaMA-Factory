@@ -385,6 +385,19 @@ class ModelArguments(
     The class on the most right will be displayed first.
     """
 
+    custom_feature_dim: Optional[int] = field(
+        default=None,
+        metadata={"help": "Dimension of the custom feature vector. If None or 0, this feature is not used."},
+    )
+    custom_projector_hidden_act: str = field(
+        default="gelu",
+        metadata={"help": "Activation function for the custom feature projector (e.g., gelu, relu, linear)."},
+    )
+    custom_projector_use_layernorm: bool = field(
+        default=True,
+        metadata={"help": "Whether to use LayerNorm in the custom feature projector."},
+    )
+
     compute_dtype: Optional[torch.dtype] = field(
         default=None,
         init=False,

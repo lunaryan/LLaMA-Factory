@@ -35,6 +35,7 @@ from .model_utils.quantization import configure_quantization
 from .model_utils.rope import configure_rope
 from .model_utils.valuehead import prepare_valuehead_model
 from .model_utils.visual import autocast_projector_dtype, configure_visual_model
+from .model_utils.custom_feature_projector import CustomFeatureProjector
 
 
 if TYPE_CHECKING:
@@ -187,6 +188,97 @@ def patch_model(
 
     if not model_args.use_unsloth:
         print_attn_implementation(model.config)
+
+    # Custom Feature Projector Integration
+    if model_args.custom_feature_dim and model_args.custom_feature_dim > 0:
+        model_hidden_dim = getattr(model.config, "hidden_size", None)
+        if model_hidden_dim is None and hasattr(model.config, "text_config"): # Common for VLMs
+            model_hidden_dim = getattr(model.config.text_config, "hidden_size", None)
+
+        if model_hidden_dim is None:
+            if hasattr(model, "config") and hasattr(model.config, "hidden_size"): # Fallback
+                 model_hidden_dim = model.config.hidden_size
+            else:
+                raise ValueError("Could not determine model hidden dimension for CustomFeatureProjector.")
+
+        target_device = model.device if hasattr(model, "device") and model.device is not None else \
+                        next(model.parameters()).device if len(list(model.parameters())) > 0 else \
+                        torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        # Ensure compute_dtype is a torch.dtype object
+        if isinstance(model_args.compute_dtype, str): # Should have been converted by patch_config
+            model_args.compute_dtype = getattr(torch, model_args.compute_dtype)
+
+        target_dtype = model_args.compute_dtype or (next(model.parameters()).dtype if len(list(model.parameters())) > 0 else torch.float32)
+
+        model.custom_feature_projector = CustomFeatureProjector(
+            custom_feature_dim=model_args.custom_feature_dim,
+            model_hidden_dim=model_hidden_dim,
+            projector_hidden_act=model_args.custom_projector_hidden_act,
+            use_layernorm=model_args.custom_projector_use_layernorm,
+        ).to(device=target_device, dtype=target_dtype)
+
+        logger.info_rank0(
+            f"Initialized CustomFeatureProjector ({model.custom_feature_projector}) "
+            f"on device {target_device} with dtype {target_dtype}."
+        )
+
+        if is_trainable: # This ensures projector is trainable if overall training is enabled
+            for param in model.custom_feature_projector.parameters():
+                param.requires_grad = True
+            logger.info_rank0("Set CustomFeatureProjector parameters to trainable.")
+
+        # Patching language model's forward pass to incorporate the custom feature
+        lm_sub_component = None
+        if hasattr(model, "language_model"):
+            lm_sub_component = model.language_model
+        elif hasattr(model, "model") and hasattr(model.model, "embed_tokens") and hasattr(model.model, "layers"):
+            if not isinstance(model.model, PeftModel):
+                lm_sub_component = model.model
+
+        if lm_sub_component:
+            _original_lm_forward = lm_sub_component.forward
+
+            # Use `model` from the outer scope of `patch_model` to access `custom_feature_projector`
+            # and the temporary attribute `_temp_custom_feature_tensor_for_lm_patch`
+            # `self_lang_model` is the instance of lm_sub_component
+            def patched_language_model_forward(self_lang_model, *patch_args, **patch_kwargs):
+                inputs_embeds = patch_kwargs.get("inputs_embeds")
+                custom_feature_tensor = getattr(model, "_temp_custom_feature_tensor_for_lm_patch", None)
+
+                if inputs_embeds is not None and custom_feature_tensor is not None and hasattr(model, "custom_feature_projector"):
+                    projected_custom_feature = model.custom_feature_projector(custom_feature_tensor)
+                    projected_custom_feature = projected_custom_feature.to(inputs_embeds.device, dtype=inputs_embeds.dtype)
+                    patch_kwargs["inputs_embeds"] = inputs_embeds + projected_custom_feature.unsqueeze(1)
+                elif custom_feature_tensor is not None:
+                    logger.warning_rank0(
+                        "Custom feature tensor provided to language model, but could not apply it."
+                    )
+                return _original_lm_forward(*patch_args, **patch_kwargs)
+
+            lm_sub_component.forward = MethodType(patched_language_model_forward, lm_sub_component)
+            logger.info_rank0(f"Patched forward of LM sub-component ({lm_sub_component.__class__.__name__}) for custom features.")
+
+            _original_main_model_forward = model.forward
+            # `self_main_model` is the instance of the main model (`model`)
+            def patched_main_model_forward(self_main_model, *patch_args, **patch_kwargs):
+                custom_feature_tensor_local = patch_kwargs.pop("custom_feature_tensor", None)
+
+                if custom_feature_tensor_local is not None:
+                    # Use self_main_model to set/del attribute, which is `model` in this context
+                    setattr(self_main_model, "_temp_custom_feature_tensor_for_lm_patch", custom_feature_tensor_local)
+
+                output = _original_main_model_forward(*patch_args, **patch_kwargs)
+
+                if hasattr(self_main_model, "_temp_custom_feature_tensor_for_lm_patch"):
+                    delattr(self_main_model, "_temp_custom_feature_tensor_for_lm_patch")
+
+                return output
+
+            model.forward = MethodType(patched_main_model_forward, model)
+            logger.info_rank0("Patched main model's forward to pass custom_feature_tensor to LM patch.")
+        else:
+            logger.warning_rank0("Language model sub-component not found. Cannot patch for custom features.")
 
     try:
         model.add_model_tags(["llama-factory"])

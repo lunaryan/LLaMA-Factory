@@ -94,6 +94,7 @@ Choose your path:
 - **Advanced algorithms**: [GaLore](https://github.com/jiaweizzhao/GaLore), [BAdam](https://github.com/Ledzy/BAdam), [APOLLO](https://github.com/zhuhanqing/APOLLO), [Adam-mini](https://github.com/zyushun/Adam-mini), [Muon](https://github.com/KellerJordan/Muon), DoRA, LongLoRA, LLaMA Pro, Mixture-of-Depths, LoRA+, LoftQ and PiSSA.
 - **Practical tricks**: [FlashAttention-2](https://github.com/Dao-AILab/flash-attention), [Unsloth](https://github.com/unslothai/unsloth), [Liger Kernel](https://github.com/linkedin/Liger-Kernel), RoPE scaling, NEFTune and rsLoRA.
 - **Wide tasks**: Multi-turn dialogue, tool using, image understanding, visual grounding, video recognition, audio understanding, etc.
+- **Custom Features**: Supports adding custom numerical feature vectors to be combined with token and visual embeddings. This includes a mode for training only the feature projector layer.
 - **Experiment monitors**: LlamaBoard, TensorBoard, Wandb, MLflow, [SwanLab](https://github.com/SwanHubX/SwanLab), etc.
 - **Faster inference**: OpenAI-style API, Gradio UI and CLI with [vLLM worker](https://github.com/vllm-project/vllm) or [SGLang worker](https://github.com/sgl-project/sglang).
 
@@ -622,6 +623,43 @@ pip install .
 ### Data Preparation
 
 Please refer to [data/README.md](data/README.md) for checking the details about the format of dataset files. You can use datasets on HuggingFace / ModelScope / Modelers hub, load the dataset in local disk, or specify a path to s3/gcs cloud storage.
+
+#### Using Custom Numerical Features (for Multimodal Models)
+
+LLaMA Factory supports the integration of an additional custom numerical feature vector alongside token and (optional) visual embeddings. This can be useful for providing global context or specific attributes to the model.
+
+**Data Format:**
+- To use this feature, your input data samples (e.g., in your JSON dataset file) should include a field named `"custom_feature_vector"`.
+- This field should contain the numerical vector as a list of floats (e.g., `[0.1, 0.5, -0.2, ...]`).
+- Each sample in a batch should have a custom feature vector of the same dimension if this feature is used for that batch.
+
+**Model Arguments for Configuration:**
+These arguments are specified in your YAML configuration file under the `model_args` section (or passed via CLI):
+
+- `custom_feature_dim` (int, optional):
+  - The dimension of your raw custom feature vector.
+  - If this is not provided or set to 0, the custom feature integration will be disabled.
+  - Example: `custom_feature_dim: 128`
+
+- `custom_projector_hidden_act` (str, optional, default: `"gelu"`):
+  - The activation function to use in the projector layer that transforms the custom feature vector to the model's hidden dimension.
+  - Supported values are typically any activation function known to Hugging Face `ACT2FN` (e.g., `"relu"`, `"silu"`, `"linear"` to have no activation).
+  - Example: `custom_projector_hidden_act: "relu"`
+
+- `custom_projector_use_layernorm` (bool, optional, default: `True`):
+  - Whether to apply LayerNorm after the projection and activation in the custom feature projector.
+  - Example: `custom_projector_use_layernorm: False`
+
+The custom feature vector will be processed by a dedicated projector layer and then added element-wise to each embedding in the sequence (after token and visual embeddings have been combined).
+
+**Training the Custom Feature Projector:**
+- When `custom_feature_dim` is specified, the newly added `CustomFeatureProjector` layer is made trainable.
+- To train *only* this projector layer (and keep the rest of the base model frozen), you should also set:
+    - `finetuning_type: "freeze"`
+    - `freeze_trainable_layers: 0` (or a configuration that ensures no base model layers are unfrozen)
+    - `freeze_trainable_modules: "dummy_module_name"` (or an empty list, to ensure no base model modules are unfrozen by name by the default freeze logic).
+- If `finetuning_type: "full"` is used, both the base model and the custom feature projector will be trained.
+- If `finetuning_type: "lora"` is used, LoRA adapters for the base model and the full custom feature projector will be trained.
 
 > [!NOTE]
 > Please update `data/dataset_info.json` to use your custom dataset.

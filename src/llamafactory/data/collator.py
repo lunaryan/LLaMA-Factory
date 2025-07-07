@@ -106,15 +106,20 @@ class MultiModalDataCollatorForSeq2Seq(DataCollatorForSeq2Seq):
             self.get_rope_func = None
 
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, "torch.Tensor"]:
-        batch_images, batch_videos, batch_audios = [], [], []
+        batch_images, batch_videos, batch_audios, batch_custom_features = [], [], [], []
         batch_imglens, batch_vidlens, batch_audlens, batch_input_ids = [], [], [], []
         for feature in features:
             images = feature.pop("images", None) or []
             videos = feature.pop("videos", None) or []
             audios = feature.pop("audios", None) or []
+            custom_feature_vector = feature.pop("custom_feature_vector", None) # Extract custom feature
+
             batch_images.extend(images)
             batch_videos.extend(videos)
             batch_audios.extend(audios)
+            if custom_feature_vector is not None: # Store if present
+                batch_custom_features.append(custom_feature_vector)
+
             batch_imglens.append(len(images))
             batch_vidlens.append(len(videos))
             batch_audlens.append(len(audios))
@@ -223,6 +228,18 @@ class MultiModalDataCollatorForSeq2Seq(DataCollatorForSeq2Seq):
             mm_inputs["cross_attention_mask"] = F.pad(cross_attention_mask, (0, 0, 0, 0, 0, seq_len - orig_len))
 
         features.update(mm_inputs)
+
+        if batch_custom_features:
+            try:
+                # Assuming all custom_feature_vectors in a batch have the same length
+                # and are provided as lists/numpy arrays of floats.
+                custom_features_tensor = torch.tensor(batch_custom_features, dtype=torch.float32)
+                features["custom_feature_tensor"] = custom_features_tensor
+            except Exception as e:
+                # Handle cases where conversion might fail (e.g. inconsistent lengths)
+                print(f"Warning: Could not convert batch_custom_features to tensor: {e}")
+                # Depending on strictness, could raise error or add a placeholder / skip
+                pass
 
         if "image_bound" in features:  # for minicpmv inputs
             bsz, seq_length = features["input_ids"].shape
