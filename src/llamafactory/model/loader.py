@@ -214,6 +214,15 @@ def load_model(
     else:
         model.train()
 
+    # Ensure custom_feature_projector parameters are trainable if it exists and is_trainable is True
+    # This is done *after* init_adapter to override any potential freezing by PeftModel or adapter logic.
+    if is_trainable and hasattr(model, "custom_feature_projector") and model.custom_feature_projector is not None:
+        logger.info_rank0("Ensuring CustomFeatureProjector parameters are trainable.")
+        for param in model.custom_feature_projector.parameters():
+            param.requires_grad = True
+        # Log projector parameter count specifically if possible, or re-count total trainable
+        # For simplicity, the main count below will now reflect this.
+
     trainable_params, all_param = count_parameters(model)
     if is_trainable:
         param_stats = (

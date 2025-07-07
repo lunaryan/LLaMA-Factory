@@ -223,10 +223,7 @@ def patch_model(
             f"on device {target_device} with dtype {target_dtype}."
         )
 
-        if is_trainable: # This ensures projector is trainable if overall training is enabled
-            for param in model.custom_feature_projector.parameters():
-                param.requires_grad = True
-            logger.info_rank0("Set CustomFeatureProjector parameters to trainable.")
+        # Trainability of the projector will be handled in loader.py, after init_adapter
 
         # Patching language model's forward pass to incorporate the custom feature
         lm_sub_component = None
