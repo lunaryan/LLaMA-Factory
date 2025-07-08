@@ -1,0 +1,55 @@
+### model
+model_name_or_path: src/llamafactory/model/custom_qwen2vl_with_feature # Path to our custom model
+image_max_pixels: 262144
+video_max_pixels: 16384
+trust_remote_code: true # Essential for loading our custom code
+
+### method
+stage: sft
+do_train: true
+finetuning_type: freeze # Changed from 'full' to 'freeze'
+freeze_vision_tower: true
+freeze_multi_modal_projector: true
+freeze_language_model: true # Changed from 'false' to 'true'
+freeze_trainable_layers: 0 # Ensures no transformer layers are trained via layer index
+freeze_trainable_modules: "" # Ensures no common modules within layers are trained
+freeze_extra_modules: "feature_projector" # Specifies our custom layer as trainable
+
+# deepspeed: examples/deepspeed/ds_z3_config.json # Optional: configure as needed
+
+### dataset
+# Ensure 'my_qwen_vl_custom_alpaca' is defined in data/dataset_info.json
+# and its 'formatting' field points to a converter that handles 'custom_feature'
+dataset: my_qwen_vl_custom_alpaca
+template: qwen2_vl # Use the standard Qwen-VL template
+cutoff_len: 2048 # Adjust as needed
+max_samples: 1000 # Adjust for your dataset size
+overwrite_cache: true
+preprocessing_num_workers: 16 # Adjust based on your system
+# dataloader_num_workers: 4 # Adjust based on your system
+
+### output
+output_dir: saves/qwen2_5vl_custom_feature/freeze_sft
+logging_steps: 10
+save_steps: 500 # Or adjust as needed
+plot_loss: true
+overwrite_output_dir: true
+save_only_model: true # Usually true when fine-tuning only a small part
+report_to: none  # choices: [none, wandb, tensorboard, swanlab, mlflow]
+
+### train
+per_device_train_batch_size: 1 # Adjust based on GPU memory
+gradient_accumulation_steps: 2 # Adjust based on GPU memory
+learning_rate: 1.0e-4 # Potentially higher for a small new layer, adjust as needed
+num_train_epochs: 3.0 # Adjust as needed
+lr_scheduler_type: cosine
+warmup_ratio: 0.1
+bf16: true # If your hardware supports it
+# ddp_timeout: 180000000 # Default from original
+# resume_from_checkpoint: null # Default from original
+
+### eval
+# val_size: 0.1
+# per_device_eval_batch_size: 1
+# eval_strategy: steps
+# eval_steps: 500
